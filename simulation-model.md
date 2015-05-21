@@ -5,11 +5,17 @@
 
 The following model computes the utility of an option as the weighted sum of the features (weighted by three parameters reflecting the target's preferences for each feature). Choices are generated stochastically using the Luce choice axiom.
 
+NB: Right now, the temperature parameter is set to 1. One reason why the model might be performing poorly is that the choice is too stochastic--it's not being 'greedy' enough. Next step is to test the model with different settings of the temperature parameter.
+
 ```
+;; ——————————————— SETTING UP IMPORTANT VARIABLES ———————————————
 ; Define target weights
 (define test-weights (list '(target1 (-1 0 -1))
-                           '(target2 (0 1 0))
-                           '(target3 (-1 -1 0))))
+                           '(target2 (.7 1 -.2))
+                           '(target3 (-1 -1 0))
+                           '(target4 (.5 .5 .5))
+                           '(target5 (-1 0 1))
+                           '(target6 (-.8 .5 0))))
 
 ; Helper function to retrieve true weights
 (define true-weights
@@ -41,6 +47,12 @@ The following model computes the utility of an option as the weighted sum of the
    )
   )
 
+(define movie-choices
+  (append movie-choices movie-choices movie-choices movie-choices))
+
+movie-choices
+
+;; ——————————————— SIMULATING CHOICES ———————————————
 ; Calculate utilities
 (define calc-utility
   (lambda (weights options)
@@ -55,6 +67,7 @@ The following model computes the utility of an option as the weighted sum of the
          (map exp (calc-utility weights options)))))
    
 ; Softmax decision function
+; TODO: CHANGE INVERSE TEMPERATURE
 (define softmax
   (lambda (weights options)
     (multinomial options (luce weights options))))
@@ -65,21 +78,31 @@ The following model computes the utility of an option as the weighted sum of the
     (map (lambda (options) (softmax weights options))
          movie-choices)))
 
-(define model-target 'target1)
+; Preferences to be recovered
+(define model-target 'target2)
 
-; Responses to be modeled
+; Responses to model
 (define responses (get-responses (true-weights model-target)))
 
+; Computing probability of responses, given weights
+(define get-prob-responses
+  (lambda (weights data)
+    (map (lambda (d o)
+           (if (equal? d (first o))
+               (first (luce weights o))
+               (second (luce weights o))))
+         data
+         movie-choices)))
 ```
 
 **Step 2:** The model
 
-Here the model is stalling. Right now, weights are randomly initialized from a mixture of uniform distributions, responses are randomly generated from those weights, and the model is conditioned on the randomly generated sequence matchign the whole sequence of responses. I'm worried that this is taking *forever* to run simply because perfect matches between these two lists are extremely rare.
-
 ```
-(define samples
+;; ——————————————— THE MODEL ITSELF ———————————————
+
+(define (samples data)
   (mh-query
-   1 10
+   1000 10
       
    ; prior on weights (uniformly distributed--is this a reasonable assumption?)
    (define guess-weights
@@ -89,11 +112,15 @@ Here the model is stalling. Right now, weights are randomly initialized from a m
    guess-weights
    
    ; condition
-   (equal? (get-responses guess-weights) responses)
+   (factor (sum (get-prob-responses guess-weights data)))
    ))
 
-(hist (map first samples) "Posterior over the first weight (correct weight: -1)")
-(hist (map second samples) "Posterior over the second weight (correct weight: 0)")
-(hist (map third samples) "Posterior over the third weight (correct weight: -1)")
+
+;; ——————————————— PLOT RESULTS ———————————————
+; Final estimates of the weights
+(display "Correct weights: " (true-weights model-target))
+(hist (map first (samples responses)))
+(hist (map second (samples responses)))
+(hist (map third (samples responses)))
 
 ```

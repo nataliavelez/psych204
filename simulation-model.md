@@ -1,17 +1,14 @@
 # Experiment 1: Recovering weights from simulated responses
 
 
-**Step 1:** Helper functions and setup
+**Step 1:** Setting up important variables and simulating responses
 
 The following model computes the utility of an option as the weighted sum of the features (weighted by three parameters reflecting the target's preferences for each feature). Choices are generated stochastically using the Luce choice axiom.
 
-NB: Right now, the temperature parameter is set to 1. One reason why the model might be performing poorly is that the choice is too stochastic--it's not being 'greedy' enough. Next step is to test the model with different settings of the temperature parameter.
-
 ```
-;; ——————————————— SETTING UP IMPORTANT VARIABLES ———————————————
 ; Define target weights
 (define test-weights (list '(target1 (-1 0 -1))
-                           '(target2 (.7 1 -.2))
+                           '(target2 (.5 1 0))
                            '(target3 (-1 -1 0))
                            '(target4 (.5 .5 .5))
                            '(target5 (-1 0 1))
@@ -49,60 +46,56 @@ NB: Right now, the temperature parameter is set to 1. One reason why the model m
 
 (define movie-choices
   (append movie-choices movie-choices movie-choices movie-choices))
+```
 
-movie-choices
-
-;; ——————————————— SIMULATING CHOICES ———————————————
+The helper functions below calculate the utility of each option, given a set of weights and temperature, and randomly sample from each pair of movies using a softmax decision rule.
+```
 ; Calculate utilities
 (define calc-utility
-  (lambda (weights options)
-    (map (lambda (o) (sum (map * weights (list-elt movie-categories o))))
+  (lambda (weights options t)
+    (map (lambda (o) (/ (sum (map * weights (list-elt movie-categories o))) t))
          options)))
    
 ; Define probabilities from utilities
 (define luce
-  (lambda (weights options)
+  (lambda (weights options t)
     (map (lambda (u)
-           (/ u (sum (map exp (calc-utility weights options)))))     
-         (map exp (calc-utility weights options)))))
+           (/ u (sum (map exp (calc-utility weights options t)))))     
+         (map exp (calc-utility weights options t)))))
    
 ; Softmax decision function
-; TODO: CHANGE INVERSE TEMPERATURE
 (define softmax
-  (lambda (weights options)
-    (multinomial options (luce weights options))))
+  (lambda (weights options t)
+    (multinomial options (luce weights options t))))
    
 ; Generate-responses
 (define get-responses
-  (lambda (weights)
-    (map (lambda (options) (softmax weights options))
+  (lambda (weights t)
+    (map (lambda (options) (softmax weights options t))
          movie-choices)))
 
 ; Preferences to be recovered
 (define model-target 'target2)
 
-; Responses to model
-(define responses (get-responses (true-weights model-target)))
-
 ; Computing probability of responses, given weights
 (define get-prob-responses
-  (lambda (weights data)
+  (lambda (weights data t)
     (map (lambda (d o)
            (if (equal? d (first o))
-               (first (luce weights o))
-               (second (luce weights o))))
+               (first (luce weights o t))
+               (second (luce weights o t))))
          data
          movie-choices)))
 ```
 
 **Step 2:** The model
 
-```
-;; ——————————————— THE MODEL ITSELF ———————————————
+Finally, the model below attempts to recover the original weights by sampling weights according to the probability of the observed sequence of responses, given a set of weights. The mean sampled value for each weight is taken as the model's "best" estimate of the weight.
 
-(define (samples data)
+```
+(define (samples data t)
   (mh-query
-   1000 10
+   500 10
       
    ; prior on weights (uniformly distributed--is this a reasonable assumption?)
    (define guess-weights
@@ -112,15 +105,14 @@ movie-choices
    guess-weights
    
    ; condition
-   (factor (sum (get-prob-responses guess-weights data)))
+   (factor (sum (get-prob-responses guess-weights data t)))
    ))
 
-
-;; ——————————————— PLOT RESULTS ———————————————
-; Final estimates of the weights
-(display "Correct weights: " (true-weights model-target))
-(hist (map first (samples responses)))
-(hist (map second (samples responses)))
-(hist (map third (samples responses)))
-
+; Iterating over temperature parameters
+(define (test-temp t)
+  (define s (samples (get-responses (true-weights model-target) t) t))
+  (list (mean (map first s))
+        (mean (map second s))
+        (mean (map third s))))
+(define temp-test (map test-temp '(0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1 2 3 4 5 6 7 8 9 10)))
 ```

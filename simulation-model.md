@@ -106,7 +106,7 @@ Finally, the model below attempts to recover the original weights by sampling we
    
    ; condition
    (factor (sum (get-prob-responses guess-weights data t)))
-   ))
+   )))
 
 ; Iterating over temperature parameters
 (define (test-temp t)
